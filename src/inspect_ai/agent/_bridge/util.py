@@ -513,7 +513,12 @@ def resolve_inspect_model(
         return get_model(model_aliases[model_name])
 
     if fallback_model is not None:
-        if model_name != "inspect" or not fallback_model.startswith("inspect/"):
+        # An inspect/-prefixed request names its model explicitly and never
+        # touches the fallback; the docstring scopes the fallback to requests
+        # that don't use "inspect" or an "inspect/" prefixed model.
+        if not model_name.startswith("inspect/") and (
+            model_name != "inspect" or not fallback_model.startswith("inspect/")
+        ):
             model_name = fallback_model
 
     if model_name == "inspect":

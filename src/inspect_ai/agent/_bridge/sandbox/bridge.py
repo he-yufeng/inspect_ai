@@ -45,7 +45,7 @@ logger = getLogger(__name__)
 async def sandbox_agent_bridge(
     state: AgentState | None = None,
     *,
-    model: str | None = None,
+    model: str | None = "inspect",
     model_aliases: dict[str, str | Model] | None = None,
     filter: GenerateFilter | None = None,
     retry_refusals: int | None = None,
