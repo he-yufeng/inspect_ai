@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Tools: Omitted fields of nested dataclass and TypedDict tool parameters now keep their declared defaults instead of being coerced from `None` (a parsing error, a silent `"None"` string, or a `TypeError`).
 - Checkpointing: Resuming from a checkpoint now rejects a host-context snapshot containing symlinks or other non-regular files instead of following them into host files.
 - Checkpointing: Resuming into a context directory left by an interrupted attempt no longer keeps files newer than the committed checkpoint alongside the restored ones.
 - Groq: An over-capacity, server, or rate-limit error delivered inside a streamed response is now retried instead of failing the sample, and a streamed context-length rejection yields `model_length` output.

@@ -1,11 +1,11 @@
 import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, time, timezone
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from inspect_ai._util.content import ContentDocument, ContentText
 from inspect_ai.event._tool import ToolEvent
@@ -170,6 +170,68 @@ def mixed_content_tool():
     return mixed_content_tool
 
 
+# --- Tool with defaulted nested params -------------------------------------
+
+
+class MyTypedDictWithOptional(TypedDict):
+    count: int
+    label: NotRequired[str]
+
+
+@dataclass
+class MyDataClassWithDefaults:
+    value: float = 1.5
+    label: str = "default-label"
+    numbers: List[int] = field(default_factory=list)
+
+
+@tool
+def defaults_tool():
+    async def defaults_tool(
+        td: MyTypedDictWithOptional, dc: MyDataClassWithDefaults
+    ) -> dict:
+        """
+        Echo a TypedDict with an optional key and a dataclass with defaults.
+
+        Args:
+            td (MyTypedDictWithOptional): TypedDict with an optional label.
+            dc (MyDataClassWithDefaults): Dataclass whose fields all default.
+
+        Returns:
+            dict: The resolved TypedDict and dataclass values.
+        """
+        return {
+            "td": td,
+            "dc": {"value": dc.value, "label": dc.label, "numbers": dc.numbers},
+        }
+
+    return defaults_tool
+
+
+@dataclass
+class MyDataClassMixed:
+    uid: int
+    label: str = "default-label"
+    trace: Optional[str] = None
+
+
+@tool
+def mixed_tool():
+    async def mixed_tool(cfg: MyDataClassMixed) -> dict:
+        """
+        Echo a dataclass mixing a required field with defaulted ones.
+
+        Args:
+            cfg (MyDataClassMixed): Dataclass with one required and two optional fields.
+
+        Returns:
+            dict: The resolved dataclass values.
+        """
+        return {"uid": cfg.uid, "label": cfg.label, "trace": cfg.trace}
+
+    return mixed_tool
+
+
 # --- Positive tests -------------------------------------------------------
 async def test_incr_simple_positive():
     """Calling incr(0) should return 1."""
@@ -269,6 +331,76 @@ async def test_complex_tool_all_params():
     assert result["the_date"] == date(2025, 4, 17)
     assert result["the_time"] == time(12, 0, 0)
     assert result["anything"] == {"complex": ["structure", 123]}
+
+
+async def test_omitted_nested_defaults_preserved():
+    """Fields the model omits keep their TypedDict/dataclass defaults."""
+    tool_def = ToolDef(defaults_tool())
+    call = make_call("defaults_tool", {"td": {"count": 3}, "dc": {}})
+
+    messages, _ = await execute_tools(
+        [ChatMessageAssistant(content=[], tool_calls=[call])], [tool_def]
+    )
+
+    assert isinstance(messages[-1], ChatMessageTool)
+    assert messages[-1].error is None
+
+    result = eval(messages[-1].content)
+    assert result["td"] == {"count": 3}
+    assert result["dc"] == {"value": 1.5, "label": "default-label", "numbers": []}
+
+
+async def test_supplied_nested_defaults_not_overwritten():
+    """Supplied values win; only the fields left out fall back to defaults."""
+    tool_def = ToolDef(defaults_tool())
+    call = make_call(
+        "defaults_tool",
+        {
+            "td": {"count": 1, "label": "x"},
+            "dc": {"label": "custom", "numbers": [1, 2]},
+        },
+    )
+
+    messages, _ = await execute_tools(
+        [ChatMessageAssistant(content=[], tool_calls=[call])], [tool_def]
+    )
+
+    assert isinstance(messages[-1], ChatMessageTool)
+    assert messages[-1].error is None
+
+    result = eval(messages[-1].content)
+    assert result["td"] == {"count": 1, "label": "x"}
+    assert result["dc"] == {"value": 1.5, "label": "custom", "numbers": [1, 2]}
+
+
+async def test_mixed_dataclass_required_and_defaults():
+    """Required fields come from input; omitted defaulted fields fall back."""
+    tool_def = ToolDef(mixed_tool())
+    call = make_call("mixed_tool", {"cfg": {"uid": 7}})
+
+    messages, _ = await execute_tools(
+        [ChatMessageAssistant(content=[], tool_calls=[call])], [tool_def]
+    )
+
+    assert isinstance(messages[-1], ChatMessageTool)
+    assert messages[-1].error is None
+
+    result = eval(messages[-1].content)
+    assert result == {"uid": 7, "label": "default-label", "trace": None}
+
+
+async def test_mixed_dataclass_missing_required_still_errors():
+    """A required field the model omits keeps the old coercion failure."""
+    tool_def = ToolDef(mixed_tool())
+    call = make_call("mixed_tool", {"cfg": {}})
+
+    messages, _ = await execute_tools(
+        [ChatMessageAssistant(content=[], tool_calls=[call])], [tool_def]
+    )
+
+    assert isinstance(messages[-1], ChatMessageTool)
+    assert messages[-1].error is not None
+    assert messages[-1].error.type == "parsing"
 
 
 def test_tool_result_content_preserves_documents():

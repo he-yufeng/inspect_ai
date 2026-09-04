@@ -4,7 +4,7 @@ import string
 import types
 import typing
 from copy import copy, deepcopy
-from dataclasses import is_dataclass
+from dataclasses import MISSING, is_dataclass
 from datetime import date, datetime, time
 from enum import EnumMeta
 from logging import getLogger
@@ -1068,14 +1068,21 @@ def tool_param(type_hint: Type[Any], input: Any) -> Any:
         elif is_typeddict(type_hint):
             typeddict_data: dict[str, Any] = {}
             annotations = get_type_hints(type_hint)
+            optional_keys: frozenset[str] = getattr(
+                type_hint, "__optional_keys__", frozenset()
+            )
             for name, hint in annotations.items():
-                typeddict_data[name] = tool_param(hint, input.get(name))
+                if name in input or name not in optional_keys:
+                    typeddict_data[name] = tool_param(hint, input.get(name))
             return typeddict_data
         elif is_dataclass(type_hint):
             dataclass_data: dict[str, Any] = {}
             fields = type_hint.__dataclass_fields__  # type: ignore
             for name, field in fields.items():
-                dataclass_data[name] = tool_param(field.type, input.get(name))  # type: ignore
+                if name in input or (
+                    field.default is MISSING and field.default_factory is MISSING
+                ):
+                    dataclass_data[name] = tool_param(field.type, input.get(name))  # type: ignore
             return type_hint(**dataclass_data)
         elif issubclass(type_hint, BaseModel):
             return type_hint(**input)
